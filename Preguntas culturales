@@ -1,0 +1,137 @@
+here<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Mini-Kahoot 🚀</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f7f7f7;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #007bff;
+      color: white;
+      padding: 20px;
+      font-size: 24px;
+    }
+    .container {
+      margin-top: 30px;
+    }
+    .category, .answer {
+      display: inline-block;
+      margin: 10px;
+      padding: 15px 25px;
+      background: #007bff;
+      color: white;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .category:hover, .answer:hover {
+      background: #0056b3;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>🎉 Bienvenidos a Mini-Kahoot 🚀</header>
+
+  <div class="container" id="menu">
+    <h2>Elige una categoría:</h2>
+    <div class="category" onclick="startQuiz('ciencia')">🔬 Ciencia</div>
+    <div class="category" onclick="startQuiz('historia')">📜 Historia</div>
+    <div class="category" onclick="startQuiz('deportes')">⚽ Deportes</div>
+    <div class="category" onclick="startQuiz('tecnologia')">💻 Tecnología</div>
+  </div>
+
+  <div class="container hidden" id="quiz">
+    <h2 id="question"></h2>
+    <div id="answers"></div>
+  </div>
+
+  <div class="container hidden" id="result">
+    <h2 id="scoreText"></h2>
+    <button onclick="restart()">Volver al inicio</button>
+  </div>
+
+  <script>
+    // Banco de preguntas por categoría
+    const questions = {
+      ciencia: [
+        { q: "¿Cuál es el planeta más grande del sistema solar?", options: ["Marte", "Júpiter", "Saturno", "Tierra"], answer: 1 },
+        { q: "¿Qué gas respiramos para vivir?", options: ["Dióxido de carbono", "Oxígeno", "Hidrógeno", "Nitrógeno"], answer: 1 }
+      ],
+      historia: [
+        { q: "¿En qué año descubrió Colón América?", options: ["1492", "1500", "1453", "1600"], answer: 0 },
+        { q: "¿Quién fue el primer presidente de EE.UU.?", options: ["Lincoln", "Jefferson", "Washington", "Adams"], answer: 2 }
+      ],
+      deportes: [
+        { q: "¿Cuántos jugadores tiene un equipo de fútbol en la cancha?", options: ["9", "10", "11", "12"], answer: 2 },
+        { q: "¿En qué deporte se usan raquetas?", options: ["Fútbol", "Tenis", "Baloncesto", "Vóley"], answer: 1 }
+      ],
+      tecnologia: [
+        { q: "¿Qué significa 'CPU'?", options: ["Central Process Unit", "Central Processing Unit", "Computer Power Unit", "Control Process User"], answer: 1 },
+        { q: "¿Quién fundó Microsoft?", options: ["Steve Jobs", "Mark Zuckerberg", "Bill Gates", "Elon Musk"], answer: 2 }
+      ]
+    };
+
+    let currentCategory = "";
+    let currentIndex = 0;
+    let score = 0;
+
+    function startQuiz(category) {
+      currentCategory = category;
+      currentIndex = 0;
+      score = 0;
+      document.getElementById("menu").classList.add("hidden");
+      document.getElementById("quiz").classList.remove("hidden");
+      showQuestion();
+    }
+
+    function showQuestion() {
+      const questionData = questions[currentCategory][currentIndex];
+      document.getElementById("question").innerText = questionData.q;
+      const answersDiv = document.getElementById("answers");
+      answersDiv.innerHTML = "";
+      questionData.options.forEach((option, i) => {
+        const btn = document.createElement("div");
+        btn.className = "answer";
+        btn.innerText = option;
+        btn.onclick = () => checkAnswer(i);
+        answersDiv.appendChild(btn);
+      });
+    }
+
+    function checkAnswer(selected) {
+      if (selected === questions[currentCategory][currentIndex].answer) {
+        score++;
+      }
+      currentIndex++;
+      if (currentIndex < questions[currentCategory].length) {
+        showQuestion();
+      } else {
+        endQuiz();
+      }
+    }
+
+    function endQuiz() {
+      document.getElementById("quiz").classList.add("hidden");
+      document.getElementById("result").classList.remove("hidden");
+      document.getElementById("scoreText").innerText = 
+        `🎉 Has terminado el quiz de ${currentCategory}! Tu puntaje fue: ${score}/${questions[currentCategory].length}`;
+    }
+
+    function restart() {
+      document.getElementById("result").classList.add("hidden");
+      document.getElementById("menu").classList.remove("hidden");
+    }
+  </script>
+
+</body>
+</html>
