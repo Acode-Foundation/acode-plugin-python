@@ -8,7 +8,7 @@
 - Packages such as `numpy`, `pandas`, `matplotlib` and `micropip` are downloaded automatically when imported (internet needed on first use)
 - matplotlib plots are shown in the console, on `plt.show()` or automatically when the program ends. Plots are sized to the console and rendered sharp on high-density screens
 - Pillow's `Image.show()` displays images in the console
-- Experimental pygame support: games draw to a canvas in the console, including ordinary blocking game loops on WebViews with JSPI (Android System WebView 137+). If SDL cannot start, the program runs without a display and the reason is shown
+- Experimental pygame support: games draw to a canvas in the console, including ordinary blocking game loops on WebViews with JSPI (Android System WebView 137+). Asks before running on Acode's main page. If SDL cannot start, the program runs without a display and the reason is shown
 - Header button to toggle line wrap in the console (remembered between sessions)
 - Thin progress line under the console header while Python is loading or code is running
 

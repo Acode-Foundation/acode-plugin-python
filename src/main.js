@@ -2,6 +2,7 @@ import plugin from "../plugin.json";
 import style from "./style.css";
 
 const WRAP_KEY = `${plugin.id}.wrap`;
+const SDL_ALLOWED_KEY = `${plugin.id}.sdlAllowed`;
 // Material "wrap_text" icon (Apache-2.0); Acode's icon font has no wrap glyph
 const WRAP_ICON =
 	'<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"/></svg>';
@@ -32,6 +33,9 @@ class Python {
 	/** number of code runs still waiting for the worker */
 	#running = 0;
 	#sdlPromise = null;
+	/** bumped by every run and when the console closes, to drop stale runs */
+	#runId = 0;
+	#sdlAllowed = false;
 
 	INITIALIZING = 1;
 	INITIALIZED = 2;
@@ -51,6 +55,7 @@ class Python {
 
 		const onhide = $page.onhide;
 		$page.onhide = () => {
+			this.#runId += 1;
 			window.acodePythonSdl?.stop();
 			this.#state = this.NOT_INTIALIZED;
 			this.#worker?.terminate();
@@ -86,7 +91,7 @@ class Python {
 		// thin progress line along the header while Python loads or code runs
 		this.$status = tag("div", { className: "py-progress" });
 		this.$page.header?.append(this.$status, this.$wrapBtn);
-		this.#setWrap(loadWrap());
+		this.#setWrap(loadFlag(WRAP_KEY));
 		this.$style = tag("style", { textContent: style });
 		this.$input = tag("div", {
 			className: "print input",
@@ -154,6 +159,7 @@ class Python {
 	}
 
 	async run() {
+		const runId = ++this.#runId;
 		window.acodePythonSdl?.stop();
 		this.#showPage();
 		this.#inputCount = 0;
@@ -161,8 +167,40 @@ class Python {
 		await this.#cacheFile.writeFile("");
 
 		const code = editorManager.editor.getValue();
-		if (PYGAME_IMPORT.test(code) && (await this.#runWithSdl(code))) return;
+		if (PYGAME_IMPORT.test(code)) {
+			if (!(await this.#allowSdl())) {
+				this.print("Running without the pygame display.", "info");
+			} else if (await this.#runWithSdl(code, runId)) {
+				return;
+			}
+			if (runId !== this.#runId) return;
+		}
 		await this.runCode(code);
+	}
+
+	/**
+	 * The pygame display runs Python on Acode's own page, where it can reach
+	 * the app and its data, unlike the isolated worker. Ask before doing that.
+	 */
+	async #allowSdl() {
+		if (this.#sdlAllowed || loadFlag(SDL_ALLOWED_KEY)) return true;
+
+		const confirm =
+			acode.require?.("confirm") ??
+			((title, message) =>
+				Promise.resolve(window.confirm(`${title}\n\n${message}`)));
+		const answer = await confirm(
+			"Show pygame display?",
+			"The experimental pygame display runs this program on Acode's main page, where it can access the app and its data. Only continue for code you trust. Cancel runs it without the display.",
+			false,
+			{ checkboxText: "Don't ask again", returnState: true },
+		);
+		// older Acode versions return a plain boolean
+		const confirmed = typeof answer === "object" ? answer?.confirmed : answer;
+		if (!confirmed) return false;
+		this.#sdlAllowed = true;
+		if (answer?.checked) saveFlag(SDL_ALLOWED_KEY, true);
+		return true;
 	}
 
 	/**
@@ -170,7 +208,7 @@ class Python {
 	 * @returns {Promise<boolean>} false if SDL is unavailable and the caller
 	 * should fall back to the worker
 	 */
-	async #runWithSdl(code) {
+	async #runWithSdl(code, runId) {
 		const $canvas = tag("canvas");
 		const $media = tag("div", { className: "py-media", children: [$canvas] });
 		this.#append($media, this.$input);
@@ -178,6 +216,8 @@ class Python {
 		this.#updateStatus();
 		try {
 			const sdl = await this.#loadSdl();
+			// another run started or the console closed while sdl.js loaded
+			if (runId !== this.#runId) return true;
 			const error = await sdl.run(code, {
 				baseUrl: this.baseUrl,
 				canvas: $canvas,
@@ -261,7 +301,7 @@ class Python {
 
 		this.$wrapBtn?.remove();
 		this.$status?.remove();
-		window.acodePythonSdl?.stop();
+		window.acodePythonSdl?.dispose?.();
 		this.#worker?.terminate();
 		editorManager.off("switch-file", this.checkRunnable.bind(this));
 		editorManager.off("rename-file", this.checkRunnable.bind(this));
@@ -285,7 +325,7 @@ class Python {
 	/** Wraps long output lines instead of scrolling them horizontally */
 	#setWrap(wrap) {
 		this.$page.classList.toggle("wrap", wrap);
-		saveWrap(wrap);
+		saveFlag(WRAP_KEY, wrap);
 	}
 
 	print(res, type) {
@@ -494,19 +534,19 @@ class Python {
 	}
 }
 
-function loadWrap() {
+function loadFlag(key) {
 	try {
-		return localStorage.getItem(WRAP_KEY) === "true";
+		return localStorage.getItem(key) === "true";
 	} catch {
 		return false;
 	}
 }
 
-function saveWrap(wrap) {
+function saveFlag(key, value) {
 	try {
-		localStorage.setItem(WRAP_KEY, String(wrap));
+		localStorage.setItem(key, String(value));
 	} catch {
-		// the preference is a convenience, ignore storage failures
+		// preferences are a convenience, ignore storage failures
 	}
 }
 

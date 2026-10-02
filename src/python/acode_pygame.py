@@ -17,14 +17,32 @@ from pyodide.ffi import can_run_sync, run_sync
 _installed = False
 _stop_requested = False
 
+# Without JSPI these calls cannot pause. An async game loop still lets the
+# event loop run between frames; a blocking one never does and would freeze
+# Acode, so it is stopped after a few frames without an event loop turn.
+MAX_PAUSES_WITHOUT_TURN = 10
+_waiting_for_turn = False
+_pauses_without_turn = 0
+
 
 class StopProgram(BaseException):
     """Raised inside the game loop when the console stops the program."""
 
 
+class BlockingLoopError(RuntimeError):
+    pass
+
+
 def reset():
     global _stop_requested
     _stop_requested = False
+    _event_loop_turned()
+
+
+def _event_loop_turned():
+    global _waiting_for_turn, _pauses_without_turn
+    _waiting_for_turn = False
+    _pauses_without_turn = 0
 
 
 def request_stop():
@@ -37,8 +55,24 @@ def _pause(seconds=0):
         raise StopProgram
     if can_run_sync():
         run_sync(asyncio.sleep(seconds))
+    else:
+        _check_not_blocking()
     if _stop_requested:
         raise StopProgram
+
+
+def _check_not_blocking():
+    global _waiting_for_turn, _pauses_without_turn
+    if not _waiting_for_turn:
+        _waiting_for_turn = True
+        asyncio.get_event_loop().call_soon(_event_loop_turned)
+        return
+    _pauses_without_turn += 1
+    if _pauses_without_turn >= MAX_PAUSES_WITHOUT_TURN:
+        raise BlockingLoopError(
+            "This WebView cannot pause Python (no JSPI support), so the game "
+            "loop must be async: add `await asyncio.sleep(0)` each frame."
+        )
 
 
 def install():

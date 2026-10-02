@@ -2,6 +2,7 @@
 // SDL needs a real <canvas>, which a worker does not have, so this runtime
 // runs on the main thread. Ordinary blocking game loops work through JSPI
 // (see python/acode_pygame.py); without JSPI only async loops are safe.
+// Code here can reach Acode's page, so main.js asks the user first.
 import {
 	flushFigures,
 	loadRuntime,
@@ -18,6 +19,18 @@ def start(code):
     acode_pygame.reset()
     acode_pygame.install()
     return asyncio.ensure_future(eval_code_async(code, {"__name__": "__main__"}))
+
+def has_await(code):
+    # real await expressions only, not the word in comments or strings
+    import ast
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, (ast.Await, ast.AsyncFor, ast.AsyncWith))
+        for node in ast.walk(tree)
+    )
 
 async def can_block():
     # only meaningful inside a task, where blocking code would run
@@ -52,7 +65,8 @@ let runner = null;
 /** the current run: its task handle and whether it was stopped */
 let current = null;
 let onFatal = () => {};
-let fetchRouted = false;
+/** set while window.fetch is routed, so dispose() can undo it */
+let fetchRoute = null;
 
 /**
  * Other plugins may replace `window.fetch` on Acode's page, e.g. with native
@@ -63,8 +77,7 @@ let fetchRouted = false;
  * taken from a hidden same-origin iframe; everything else is untouched.
  */
 function routeRuntimeFetch(baseUrl) {
-	if (fetchRouted) return;
-	fetchRouted = true;
+	if (fetchRoute) return;
 	const $frame = document.createElement("iframe");
 	$frame.style.display = "none";
 	$frame.setAttribute("aria-hidden", "true");
@@ -74,13 +87,27 @@ function routeRuntimeFetch(baseUrl) {
 	const pageFetch = window.fetch;
 	const prefixes = [baseUrl, PACKAGE_BASE_URL];
 
-	window.fetch = function (input, init) {
+	const route = { $frame, pageFetch, disposed: false, fetch: null };
+	route.fetch = function (input, init) {
 		const url = typeof input === "string" ? input : (input?.url ?? `${input}`);
-		if (prefixes.some((prefix) => url.startsWith(prefix))) {
+		if (!route.disposed && prefixes.some((prefix) => url.startsWith(prefix))) {
 			return browserFetch(input, init);
 		}
 		return pageFetch.call(this, input, init);
 	};
+	window.fetch = route.fetch;
+	fetchRoute = route;
+}
+
+/** Undoes routeRuntimeFetch when the plugin is unmounted */
+function unrouteRuntimeFetch() {
+	if (!fetchRoute) return;
+	// if another plugin wrapped fetch after us, restoring would drop their
+	// wrapper, so leave ours in place as a plain pass-through instead
+	if (window.fetch === fetchRoute.fetch) window.fetch = fetchRoute.pageFetch;
+	fetchRoute.disposed = true;
+	fetchRoute.$frame.remove();
+	fetchRoute = null;
 }
 
 function getRuntime(baseUrl) {
@@ -112,6 +139,7 @@ function getRuntime(baseUrl) {
 		pyodide.runPython(RUNNER_SOURCE, { globals: namespace });
 		runner = {
 			start: namespace.get("start"),
+			hasAwait: namespace.get("has_await"),
 			canBlock: namespace.get("can_block"),
 			stop: namespace.get("stop"),
 		};
@@ -143,18 +171,22 @@ async function run(
 	let pyodide;
 	try {
 		pyodide = await getRuntime(baseUrl);
+		// stopped while the runtime was loading
+		if (run.stopped) return null;
 		canvas.id = "canvas";
 		canvas.tabIndex = 0;
 		pyodide.canvas.setCanvas2D(canvas);
 		pyodide.runPython("import pygame\npygame.display.init()");
 		// a blocking game loop needs JSPI to pause, or it freezes Acode
-		if (!/\bawait\b/.test(code) && !(await runner.canBlock())) {
+		if (!runner.hasAwait(code) && !(await runner.canBlock())) {
 			throw new Error(
 				"this WebView cannot pause Python (no JSPI support), so the game loop must be async: await asyncio.sleep(0) each frame",
 			);
 		}
+		if (run.stopped) return null;
 	} catch (error) {
 		if (current === run) current = null;
+		if (run.stopped) return null;
 		throw new SdlUnavailableError(error?.message ?? String(error));
 	}
 
@@ -169,6 +201,8 @@ async function run(
 			width,
 			pixelRatio,
 		});
+		// stopped while packages were loading
+		if (run.stopped) return null;
 		const task = runner.start(code);
 		// awaiting a proxy of a Python awaitable consumes and destroys it,
 		// so keep a separate copy for stop() to cancel the task with
@@ -207,4 +241,12 @@ function stop() {
 	}
 }
 
-self.acodePythonSdl = { run, stop, SdlUnavailableError };
+/** Stops any program and undoes page changes when the plugin is unmounted */
+function dispose() {
+	stop();
+	unrouteRuntimeFetch();
+	if (self.acodePythonSdl === api) delete self.acodePythonSdl;
+}
+
+const api = { run, stop, dispose, SdlUnavailableError };
+self.acodePythonSdl = api;

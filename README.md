@@ -72,6 +72,7 @@ while running:
 pygame.quit()
 ```
 
+- The display runs your program on Acode's main page instead of the isolated worker, so it could access the app and its data. The plugin asks before doing this (you can choose not to be asked again); only allow it for code you trust.
 - Blocking loops like this need Android System WebView 137 or newer (JSPI support). On older WebViews, make the loop async with `await asyncio.sleep(0)` each frame.
 - Running again or closing the console stops the game.
 - If SDL cannot start, the program runs without a display and the console explains why.
