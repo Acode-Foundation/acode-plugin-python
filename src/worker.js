@@ -123,9 +123,11 @@ __builtins__.input = input
 );
 
 self.onmessage = async (e) => {
-	const handler = actions.get(e.data.action);
+	const { action } = e.data;
+	if (!actions.has(action)) return;
 
-	if (handler) {
+	const handler = actions.get(action);
+	if (typeof handler === "function") {
 		await handler(e.data);
 	}
 };
