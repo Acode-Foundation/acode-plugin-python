@@ -95,6 +95,8 @@ const buildConfig = {
 	entryPoints: {
 		main: "src/main.js",
 		worker: "src/worker.js",
+		// experimental SDL runtime, loaded on demand by main.js
+		sdl: "src/sdl.js",
 	},
 	bundle: true,
 	minify: true,
@@ -106,6 +108,8 @@ const buildConfig = {
 	outdir: "dist",
 	// Node-only imports inside Pyodide, never reached in the browser
 	external: ["node:*", "ws"],
+	// Python helpers installed into Pyodide's site-packages
+	loader: { ".py": "text" },
 	define: {
 		PYODIDE_VERSION: JSON.stringify(pyodideVersion),
 	},

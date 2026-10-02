@@ -1,35 +1,6 @@
-// The Pyodide loader and runtime are bundled into this file instead of being
-// imported at runtime, so loading does not depend on how the host serves .mjs files
-import { loadPyodide } from "pyodide";
-import createPyodideModule from "pyodide/pyodide.asm.mjs";
+import { flushFigures, loadRuntime, prepareCode } from "./runtime.js";
 
 let inputCount = 0;
-
-// Packages not bundled with the plugin are fetched on demand from the CDN
-// build matching the bundled runtime (PYODIDE_VERSION is injected at build time)
-const PACKAGE_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-
-// Local file hosts in Android WebView often do not serve .wasm as
-// `application/wasm`, which makes instantiateStreaming throw. Pyodide only logs
-// that error and never settles, so fall back to an ArrayBuffer and report any
-// remaining failure ourselves instead of leaving the page stuck on loading.
-const instantiateStreaming = WebAssembly.instantiateStreaming;
-WebAssembly.instantiateStreaming = async (source, imports) => {
-	try {
-		const response = await source;
-		if (!response.ok) {
-			throw new Error(`${response.url} (HTTP ${response.status})`);
-		}
-		const type = response.headers.get("Content-Type") ?? "";
-		if (instantiateStreaming && type.startsWith("application/wasm")) {
-			return await instantiateStreaming(response, imports);
-		}
-		return await WebAssembly.instantiate(await response.arrayBuffer(), imports);
-	} catch (error) {
-		postInitError(error);
-		throw error;
-	}
-};
 
 function postInitError(error) {
 	// Error objects are not always cloneable, so only send the message
@@ -41,10 +12,8 @@ function postInitError(error) {
 }
 
 async function loadPyodideAndPackages(baseUrl = "", packages) {
-	self.pyodide = await loadPyodide({
-		indexURL: `${baseUrl}lib/`,
-		createPyodideModule,
-		packageBaseUrl: PACKAGE_BASE_URL,
+	self.pyodide = await loadRuntime({
+		baseUrl,
 		stdout: (msg) => {
 			stdout(msg);
 		},
@@ -54,7 +23,20 @@ async function loadPyodideAndPackages(baseUrl = "", packages) {
 		stdin: () => {
 			return stdin();
 		},
+		showImage: (data) => {
+			self.postMessage({ action: "image", data });
+		},
+		// there is no canvas in a worker; Emscripten's SDL video and audio
+		// would crash Pyodide, so pygame runs headless here
+		env: { SDL_VIDEODRIVER: "dummy", SDL_AUDIODRIVER: "dummy" },
 	});
+	// a fatal error leaves Python unusable and pending runs never settle
+	self.pyodide._api.on_fatal = (error) => {
+		self.postMessage({
+			action: "fatal",
+			error: String(error?.message ?? error),
+		});
+	};
 	if (Array.isArray(packages)) {
 		await self.pyodide.loadPackage(packages);
 	}
@@ -97,11 +79,16 @@ __builtins__.input = input
 				return;
 			}
 			try {
-				await self.pyodide.loadPackagesFromImports(code, {
-					messageCallback: stdout,
-					errorCallback: stderr,
+				await prepareCode(self.pyodide, code, {
+					message: stdout,
+					error: stderr,
 				});
-				const output = await self.pyodide.runPythonAsync(code);
+				let output;
+				try {
+					output = await self.pyodide.runPythonAsync(code);
+				} finally {
+					showLeftoverFigures();
+				}
 				self.postMessage({
 					action: "run",
 					success: true,
@@ -133,6 +120,14 @@ self.onmessage = async (e) => {
 };
 
 self.line = "";
+
+function showLeftoverFigures() {
+	try {
+		flushFigures(self.pyodide);
+	} catch (error) {
+		stderr(error);
+	}
+}
 
 function stdout(msg) {
 	self.postMessage({

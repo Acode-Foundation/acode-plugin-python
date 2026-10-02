@@ -6,6 +6,11 @@ const WRAP_KEY = `${plugin.id}.wrap`;
 const WRAP_ICON =
 	'<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"/></svg>';
 
+// pygame programs use the experimental SDL runtime on the main thread, which
+// is only safe when their game loop yields with `await`
+const PYGAME_IMPORT = /^\s*(?:import|from)\s+pygame\b/m;
+const AWAIT = /\bawait\b/;
+
 class Python {
 	#worker;
 	#onInitError;
@@ -28,6 +33,7 @@ class Python {
 	#initPromise = Promise.resolve(false);
 	/** number of code runs still waiting for the worker */
 	#running = 0;
+	#sdlPromise = null;
 
 	INITIALIZING = 1;
 	INITIALIZED = 2;
@@ -47,6 +53,7 @@ class Python {
 
 		const onhide = $page.onhide;
 		$page.onhide = () => {
+			window.acodePythonSdl?.stop();
 			this.#state = this.NOT_INTIALIZED;
 			this.#worker?.terminate();
 			// runs on the terminated worker never reply
@@ -149,11 +156,75 @@ class Python {
 	}
 
 	async run() {
+		window.acodePythonSdl?.stop();
 		this.#showPage();
 		this.#inputCount = 0;
 		this.#append(this.$input);
 		await this.#cacheFile.writeFile("");
-		await this.runCode(editorManager.editor.getValue());
+
+		const code = editorManager.editor.getValue();
+		if (PYGAME_IMPORT.test(code)) {
+			if (!AWAIT.test(code)) {
+				this.print(
+					"Tip: pygame needs an async game loop (await asyncio.sleep(0) each frame) to show its window with the experimental SDL support.",
+					"info",
+				);
+			} else if (await this.#runWithSdl(code)) {
+				return;
+			}
+		}
+		await this.runCode(code);
+	}
+
+	/**
+	 * Runs a pygame program with the experimental SDL runtime.
+	 * @returns {Promise<boolean>} false if SDL is unavailable and the caller
+	 * should fall back to the worker
+	 */
+	async #runWithSdl(code) {
+		const $canvas = tag("canvas");
+		const $media = tag("div", { className: "py-media", children: [$canvas] });
+		this.#append($media, this.$input);
+		this.#running += 1;
+		this.#updateStatus();
+		try {
+			const sdl = await this.#loadSdl();
+			const error = await sdl.run(code, {
+				baseUrl: this.baseUrl,
+				canvas: $canvas,
+				stdout: (text) => this.print(text),
+				stderr: (text) => this.print(text, "error"),
+				showImage: (data) => this.#printImage(data),
+			});
+			if (error) this.print(error, "error");
+			return true;
+		} catch (error) {
+			$media.remove();
+			this.print(
+				`Experimental SDL support is unavailable (${error?.message ?? error}). Running without it, so pygame windows cannot be shown.`,
+				"info",
+			);
+			return false;
+		} finally {
+			this.#running = Math.max(0, this.#running - 1);
+			this.#updateStatus();
+		}
+	}
+
+	#loadSdl() {
+		this.#sdlPromise ??= new Promise((resolve, reject) => {
+			const $script = tag("script", { src: `${this.baseUrl}sdl.js` });
+			$script.onload = () => {
+				if (window.acodePythonSdl) resolve(window.acodePythonSdl);
+				else reject(new Error("sdl.js did not initialize"));
+			};
+			$script.onerror = () => reject(new Error("failed to load sdl.js"));
+			document.head.append($script);
+		}).catch((error) => {
+			this.#sdlPromise = null;
+			throw error;
+		});
+		return this.#sdlPromise;
 	}
 
 	async terminal() {
@@ -199,6 +270,7 @@ class Python {
 
 		this.$wrapBtn?.remove();
 		this.$status?.remove();
+		window.acodePythonSdl?.stop();
 		this.#worker?.terminate();
 		editorManager.off("switch-file", this.checkRunnable.bind(this));
 		editorManager.off("rename-file", this.checkRunnable.bind(this));
@@ -232,6 +304,15 @@ class Python {
 			textContent: res,
 		});
 		this.#append($output, this.$input);
+	}
+
+	#printImage(data) {
+		if (!this.$page.isConnected) return;
+		const $img = tag("img", { src: `data:image/png;base64,${data}` });
+		this.#append(
+			tag("div", { className: "py-media", children: [$img] }),
+			this.$input,
+		);
 	}
 
 	#showPage() {
@@ -284,6 +365,20 @@ class Python {
 
 			case "stdout":
 				this.print(text);
+				break;
+
+			case "image":
+				this.#printImage(e.data.data);
+				break;
+
+			case "fatal":
+				// Python cannot recover; restart it on the next run
+				this.#worker?.terminate();
+				this.#state = this.NOT_INTIALIZED;
+				this.#isInput = false;
+				this.#onRunError?.(
+					`Python crashed (${error}). It will restart on the next run.`,
+				);
 				break;
 
 			case "stderr":

@@ -73,6 +73,22 @@
 			&.error {
 				color: orangered;
 			}
+
+			&.info {
+				opacity: 0.7;
+			}
+		}
+	}
+
+	/* matplotlib/Pillow images and the SDL canvas */
+	.py-media {
+		margin: 4px 0;
+
+		img,
+		canvas {
+			display: block;
+			max-width: 100%;
+			height: auto;
 		}
 	}
 

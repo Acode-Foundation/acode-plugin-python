@@ -27,6 +27,32 @@ import micropip
 await micropip.install("snowballstemmer")
 ```
 
+### Plots and images
+
+`matplotlib` figures are shown in the console when you call `plt.show()`, and any figures left open are shown when the program ends. Pillow's `Image.show()` works too.
+
+### pygame (experimental)
+
+pygame programs can draw to a canvas in the console using Pyodide's [SDL support](https://pyodide.org/en/stable/usage/sdl.html). The game loop must be async so the app stays responsive:
+
+```python
+import asyncio
+import pygame
+
+pygame.init()
+screen = pygame.display.set_mode((320, 240))
+
+async def main():
+    while True:
+        screen.fill((30, 30, 60))
+        pygame.display.flip()
+        await asyncio.sleep(1 / 60)
+
+await main()
+```
+
+If SDL cannot start, the program runs without a display. Running again or closing the console stops the game.
+
 ## Development
 
 ```sh
