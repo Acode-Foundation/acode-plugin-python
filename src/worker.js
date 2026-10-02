@@ -60,71 +60,73 @@ async function loadPyodideAndPackages(baseUrl = "", packages) {
 	}
 }
 
-const actions = {
-	async init(data) {
-		const { packages, baseUrl, cacheFileUrl } = data;
-		self.cacheFileUrl = cacheFileUrl;
-		try {
-			await loadPyodideAndPackages(baseUrl, packages);
+// A Map, so a message's action name can only reach these handlers and never
+// inherited Object methods like `constructor` (Object.hasOwn needs Chrome 93)
+const actions = new Map(
+	Object.entries({
+		async init(data) {
+			const { packages, baseUrl, cacheFileUrl } = data;
+			self.cacheFileUrl = cacheFileUrl;
+			try {
+				await loadPyodideAndPackages(baseUrl, packages);
 
-			// override python input
-			await self.pyodide.runPython(`import sys
+				// override python input
+				await self.pyodide.runPython(`import sys
 def input(prompt=''):
     print(prompt)
     return sys.stdin.readline().strip()
 
 __builtins__.input = input
 `);
-			self.postMessage({
-				action: "init",
-				success: true,
-			});
-		} catch (error) {
-			postInitError(error);
-		}
-	},
-	async run(data) {
-		const { code } = data;
-		if (!self.pyodide) {
-			self.postMessage({
-				action: "run",
-				success: false,
-				error: "Python is not loaded yet.",
-			});
-			return;
-		}
-		try {
-			await self.pyodide.loadPackagesFromImports(code, {
-				messageCallback: stdout,
-				errorCallback: stderr,
-			});
-			const output = await self.pyodide.runPythonAsync(code);
-			self.postMessage({
-				action: "run",
-				success: true,
-				output: output?.toString() ?? output ?? "",
-			});
-		} catch (error) {
-			self.postMessage({
-				action: "run",
-				success: false,
-				error: error?.message ?? error?.toString(),
-			});
-		}
-	},
-	input(data) {
-		const { line } = data;
-		self.line = line;
-	},
-};
+				self.postMessage({
+					action: "init",
+					success: true,
+				});
+			} catch (error) {
+				postInitError(error);
+			}
+		},
+		async run(data) {
+			const { code } = data;
+			if (!self.pyodide) {
+				self.postMessage({
+					action: "run",
+					success: false,
+					error: "Python is not loaded yet.",
+				});
+				return;
+			}
+			try {
+				await self.pyodide.loadPackagesFromImports(code, {
+					messageCallback: stdout,
+					errorCallback: stderr,
+				});
+				const output = await self.pyodide.runPythonAsync(code);
+				self.postMessage({
+					action: "run",
+					success: true,
+					output: output?.toString() ?? output ?? "",
+				});
+			} catch (error) {
+				self.postMessage({
+					action: "run",
+					success: false,
+					error: error?.message ?? error?.toString(),
+				});
+			}
+		},
+		input(data) {
+			const { line } = data;
+			self.line = line;
+		},
+	}),
+);
 
 self.onmessage = async (e) => {
-	const { action } = e.data;
+	const handler = actions.get(e.data.action);
 
-	// only the handlers defined above, never inherited Object methods
-	// biome-ignore lint/suspicious/noPrototypeBuiltins: Object.hasOwn needs Chrome 93, the build targets Chrome 90
-	if (Object.prototype.hasOwnProperty.call(actions, action)) {
-		await actions[action](e.data);
+	if (handler) {
+		await handler(e.data);
 	}
 };
 
