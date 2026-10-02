@@ -33,6 +33,7 @@ class Python {
 	/** number of code runs still waiting for the worker */
 	#running = 0;
 	#sdlPromise = null;
+	$sdlScript = null;
 	/** bumped by every run and when the console closes, to drop stale runs */
 	#runId = 0;
 	#sdlAllowed = false;
@@ -244,6 +245,7 @@ class Python {
 	#loadSdl() {
 		this.#sdlPromise ??= new Promise((resolve, reject) => {
 			const $script = tag("script", { src: `${this.baseUrl}sdl.js` });
+			this.$sdlScript = $script;
 			$script.onload = () => {
 				if (window.acodePythonSdl) resolve(window.acodePythonSdl);
 				else reject(new Error("sdl.js did not initialize"));
@@ -302,6 +304,9 @@ class Python {
 		this.$wrapBtn?.remove();
 		this.$status?.remove();
 		window.acodePythonSdl?.dispose?.();
+		// a later init loads a fresh sdl.js instead of the disposed one
+		this.#sdlPromise = null;
+		this.$sdlScript?.remove();
 		this.#worker?.terminate();
 		editorManager.off("switch-file", this.checkRunnable.bind(this));
 		editorManager.off("rename-file", this.checkRunnable.bind(this));

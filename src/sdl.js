@@ -112,7 +112,6 @@ function unrouteRuntimeFetch() {
 
 function getRuntime(baseUrl) {
 	runtimePromise ??= (async () => {
-		routeRuntimeFetch(baseUrl);
 		const pyodide = await loadRuntime({
 			baseUrl,
 			stdout: (text) => handlers.stdout(text),
@@ -162,6 +161,9 @@ async function run(
 	{ baseUrl, canvas, stdout, stderr, showImage, width, pixelRatio },
 ) {
 	stop();
+	// every run, not only the first load: package downloads need the route
+	// too, and dispose() may have removed it while the runtime was cached
+	routeRuntimeFetch(baseUrl);
 	const run = { task: null, stopped: false };
 	current = run;
 	Object.assign(handlers, { stdout, stderr, showImage });
@@ -245,6 +247,9 @@ function stop() {
 function dispose() {
 	stop();
 	unrouteRuntimeFetch();
+	// let the runtime be freed instead of reused after a remount
+	runtimePromise = null;
+	runner = null;
 	if (self.acodePythonSdl === api) delete self.acodePythonSdl;
 }
 
