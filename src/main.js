@@ -78,8 +78,8 @@ class Python {
 			attr: { action: "toggle-wrap", role: "button" },
 			onclick: () => this.#setWrap(!this.$page.classList.contains("wrap")),
 		});
-		// Acode's spinner, shown while Python loads or code runs
-		this.$status = tag("span", { className: "icon hidden" });
+		// thin progress line along the header while Python loads or code runs
+		this.$status = tag("div", { className: "py-progress" });
 		this.$page.header?.append(this.$status, this.$wrapBtn);
 		this.#setWrap(loadWrap());
 		this.$style = tag("style", { textContent: style });
@@ -182,14 +182,13 @@ class Python {
 		}
 	}
 
-	/** Spinner while Python is busy, hidden while it waits for input() */
+	/** Progress line while Python is busy, hidden while it waits for input() */
 	#updateStatus() {
 		if (!this.$status) return;
 		const busy =
 			(this.#state === this.INITIALIZING || this.#running > 0) &&
 			!this.#isInput;
-		this.$status.classList.toggle("loading", busy);
-		this.$status.classList.toggle("hidden", !busy);
+		this.$status.classList.toggle("running", busy);
 	}
 
 	destroy() {
