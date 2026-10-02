@@ -94,12 +94,4 @@ npm run check      # lint and format check (Biome)
 
 In Acode, install from **Plugins → + → Remote** using `http://<your-ip>:3000/plugin.zip`.
 
-Source layout:
-
-- `src/main.js`: console page, run button and Acode integration
-- `src/worker.js`: runs Python in a web worker
-- `src/sdl.js`: experimental SDL runtime on the main thread, loaded only for pygame
-- `src/runtime.js`: Pyodide setup shared by both runtimes
-- `src/python/`: Python helpers for showing plots/images and running pygame loops
-
 See [changelog.md](changelog.md) for release notes.
