@@ -122,7 +122,8 @@ self.onmessage = async (e) => {
 	const { action } = e.data;
 
 	// only the handlers defined above, never inherited Object methods
-	if (Object.hasOwn(actions, action)) {
+	// biome-ignore lint/suspicious/noPrototypeBuiltins: Object.hasOwn needs Chrome 93, the build targets Chrome 90
+	if (Object.prototype.hasOwnProperty.call(actions, action)) {
 		await actions[action](e.data);
 	}
 };
