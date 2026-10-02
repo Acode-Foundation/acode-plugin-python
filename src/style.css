@@ -23,6 +23,9 @@
 		&:not(:empty) {
 			&::before {
 				content: ">>";
+				flex-shrink: 0;
+				white-space: pre;
+				overflow-wrap: normal;
 				padding: 0 10px 0 0;
 				background: var(--secondary-color);
 				position: sticky;
@@ -40,6 +43,19 @@
 			&.error {
 				color: orangered;
 			}
+		}
+	}
+
+	&.wrap .print {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	.wrap_py {
+		opacity: 0.5;
+
+		&.active {
+			opacity: 1;
 		}
 	}
 }

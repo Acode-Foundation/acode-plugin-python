@@ -6,6 +6,7 @@
 - Packages such as `numpy`, `pandas` and `micropip` are now downloaded on demand when imported
 - Errors written to stderr are now shown in red
 - Console output can now be selected and copied
+- Header button to toggle line wrap in the console (remembered between sessions)
 - Fixed Python failing to load (or staying on "loading...") on some devices
 - Clear error message when Python fails to load, with automatic retry on the next run
 - Smaller plugin size (removed stale Pyodide files)

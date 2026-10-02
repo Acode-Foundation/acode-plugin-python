@@ -1,6 +1,11 @@
 import plugin from "../plugin.json";
 import style from "./style.css";
 
+const WRAP_KEY = `${plugin.id}.wrap`;
+// Material "wrap_text" icon (Apache-2.0); Acode's icon font has no wrap glyph
+const WRAP_ICON =
+	'<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"/></svg>';
+
 class Python {
 	#worker;
 	#onInitError;
@@ -13,6 +18,7 @@ class Python {
 	$input = null;
 	$page = null;
 	$runBtn = null;
+	$wrapBtn = null;
 	$style = null;
 	#codes = [];
 	#niddle = 0;
@@ -60,6 +66,14 @@ class Python {
 			attr: { action: "run" },
 			onclick: this.run.bind(this),
 		});
+		this.$wrapBtn = tag("span", {
+			className: "icon wrap_py",
+			innerHTML: WRAP_ICON,
+			attr: { action: "toggle-wrap", title: "Wrap lines", role: "button" },
+			onclick: () => this.#setWrap(!this.$page.classList.contains("wrap")),
+		});
+		this.$page.header?.append(this.$wrapBtn);
+		this.#setWrap(loadWrap());
 		this.$style = tag("style", { textContent: style });
 		this.$input = tag("div", {
 			className: "print input",
@@ -159,6 +173,7 @@ class Python {
 			this.$runBtn.remove();
 		}
 
+		this.$wrapBtn?.remove();
 		this.#worker?.terminate();
 		editorManager.off("switch-file", this.checkRunnable.bind(this));
 		editorManager.off("rename-file", this.checkRunnable.bind(this));
@@ -177,6 +192,14 @@ class Python {
 			$header.get(".icon.play_arrow")?.remove();
 			$header.insertBefore(this.$runBtn, $header.lastChild);
 		}
+	}
+
+	/** Wraps long output lines instead of scrolling them horizontally */
+	#setWrap(wrap) {
+		this.$page.classList.toggle("wrap", wrap);
+		this.$wrapBtn.classList.toggle("active", wrap);
+		this.$wrapBtn.setAttribute("aria-pressed", String(wrap));
+		saveWrap(wrap);
 	}
 
 	print(res, type) {
@@ -336,6 +359,22 @@ class Python {
 		}
 
 		return false;
+	}
+}
+
+function loadWrap() {
+	try {
+		return localStorage.getItem(WRAP_KEY) === "true";
+	} catch {
+		return false;
+	}
+}
+
+function saveWrap(wrap) {
+	try {
+		localStorage.setItem(WRAP_KEY, String(wrap));
+	} catch {
+		// the preference is a convenience, ignore storage failures
 	}
 }
 
