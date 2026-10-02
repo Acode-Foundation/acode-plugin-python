@@ -1,7 +1,7 @@
 // Experimental SDL support (https://pyodide.org/en/stable/usage/sdl.html).
 // SDL needs a real <canvas>, which a worker does not have, so this runtime
-// runs on the main thread. It is only loaded for pygame programs with an
-// async game loop; blocking loops would freeze Acode.
+// runs on the main thread. Ordinary blocking game loops work through JSPI
+// (see python/acode_pygame.py); without JSPI only async loops are safe.
 import { flushFigures, loadRuntime, prepareCode } from "./runtime.js";
 
 const RUNNER_SOURCE = `
@@ -9,14 +9,28 @@ import asyncio
 from pyodide.code import eval_code_async
 
 def start(code):
+    import acode_pygame
+    acode_pygame.reset()
+    acode_pygame.install()
     return asyncio.ensure_future(eval_code_async(code, {"__name__": "__main__"}))
+
+async def can_block():
+    # only meaningful inside a task, where blocking code would run
+    from pyodide.ffi import can_run_sync
+    return can_run_sync()
 
 def stop():
     import sys
+    acode_pygame = sys.modules.get("acode_pygame")
+    if acode_pygame is not None:
+        acode_pygame.request_stop()
     pygame = sys.modules.get("pygame")
     if pygame is not None:
         pygame.quit()
 `;
+
+// errors that mean the program was stopped from the console
+const STOPPED = new Set(["CancelledError", "StopProgram"]);
 
 /** Thrown when SDL itself is unavailable, so the caller can fall back */
 class SdlUnavailableError extends Error {}
@@ -30,7 +44,8 @@ const handlers = {
 
 let runtimePromise = null;
 let runner = null;
-let task = null;
+/** the current run: its task handle and whether it was stopped */
+let current = null;
 let onFatal = () => {};
 
 function getRuntime(baseUrl) {
@@ -41,7 +56,7 @@ function getRuntime(baseUrl) {
 			stderr: (text) => handlers.stderr(text),
 			// blocking input() is impossible on the main thread
 			stdin: () => null,
-			showImage: (data) => handlers.showImage(data),
+			showImage: (data, scale) => handlers.showImage(data, scale),
 			// only take keyboard input from the canvas, not all of Acode
 			env: { SDL_EMSCRIPTEN_KEYBOARD_ELEMENT: "#canvas" },
 		});
@@ -61,6 +76,7 @@ function getRuntime(baseUrl) {
 		pyodide.runPython(RUNNER_SOURCE, { globals: namespace });
 		runner = {
 			start: namespace.get("start"),
+			canBlock: namespace.get("can_block"),
 			stop: namespace.get("stop"),
 		};
 		namespace.destroy();
@@ -77,8 +93,13 @@ function getRuntime(baseUrl) {
  * @returns {Promise<string | null>} formatted Python error, or null
  * @throws {SdlUnavailableError} if SDL could not be set up
  */
-async function run(code, { baseUrl, canvas, stdout, stderr, showImage }) {
+async function run(
+	code,
+	{ baseUrl, canvas, stdout, stderr, showImage, width, pixelRatio },
+) {
 	stop();
+	const run = { task: null, stopped: false };
+	current = run;
 	Object.assign(handlers, { stdout, stderr, showImage });
 	// SDL sets document.title to its window caption, which is Acode's title
 	const title = document.title;
@@ -90,44 +111,56 @@ async function run(code, { baseUrl, canvas, stdout, stderr, showImage }) {
 		canvas.tabIndex = 0;
 		pyodide.canvas.setCanvas2D(canvas);
 		pyodide.runPython("import pygame\npygame.display.init()");
+		// a blocking game loop needs JSPI to pause, or it freezes Acode
+		if (!/\bawait\b/.test(code) && !(await runner.canBlock())) {
+			throw new Error(
+				"this WebView cannot pause Python (no JSPI support), so the game loop must be async: await asyncio.sleep(0) each frame",
+			);
+		}
 	} catch (error) {
+		if (current === run) current = null;
 		throw new SdlUnavailableError(error?.message ?? String(error));
 	}
 
-	let handle = null;
 	const fatal = new Promise((_, reject) => {
 		onFatal = (error) =>
 			reject(new Error(`Python crashed (${error?.message ?? error})`));
 	});
 	try {
-		await prepareCode(pyodide, code, { message: stdout, error: stderr });
-		const current = runner.start(code);
+		await prepareCode(pyodide, code, {
+			message: stdout,
+			error: stderr,
+			width,
+			pixelRatio,
+		});
+		const task = runner.start(code);
 		// awaiting a proxy of a Python awaitable consumes and destroys it,
 		// so keep a separate copy for stop() to cancel the task with
-		handle = current.copy();
-		task = handle;
-		await Promise.race([current, fatal]);
+		run.task = task.copy();
+		await Promise.race([task, fatal]);
 		return null;
 	} catch (error) {
-		if (error?.type === "CancelledError") return null;
+		if (run.stopped || STOPPED.has(error?.type)) return null;
 		return error?.message ?? String(error);
 	} finally {
 		document.title = title;
-		// a newer run may have replaced the task already
-		if (task === handle) task = null;
-		handle?.destroy();
-		try {
-			flushFigures(pyodide);
-		} catch (error) {
-			stderr(error?.message ?? String(error));
+		run.task?.destroy();
+		if (current === run) current = null;
+		if (!run.stopped) {
+			try {
+				flushFigures(pyodide);
+			} catch (error) {
+				stderr(error?.message ?? String(error));
+			}
 		}
 	}
 }
 
-/** Cancels the running program and closes its pygame display */
+/** Stops the running program and closes its pygame display */
 function stop() {
+	if (current) current.stopped = true;
 	try {
-		task?.cancel();
+		current?.task?.cancel();
 	} catch {
 		// already finished
 	}

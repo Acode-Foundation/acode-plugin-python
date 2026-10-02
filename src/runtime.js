@@ -5,6 +5,7 @@ import { loadPyodide } from "pyodide";
 import createPyodideModule from "pyodide/pyodide.asm.mjs";
 import displaySource from "./python/acode_display.py";
 import mplBackendSource from "./python/acode_mpl_backend.py";
+import pygameSource from "./python/acode_pygame.py";
 
 // Packages not bundled with the plugin are fetched on demand from the CDN
 // build matching the bundled runtime (PYODIDE_VERSION is injected at build time)
@@ -18,7 +19,7 @@ const NOISE = /already loaded from|^No new packages to load/;
  * @param {(text: string) => void} options.stdout
  * @param {(text: string) => void} options.stderr
  * @param {() => string | null} options.stdin
- * @param {(base64Png: string) => void} options.showImage
+ * @param {(base64Png: string, scale: number) => void} options.showImage
  * @param {Record<string, string>} [options.env] extra environment variables
  */
 export async function loadRuntime({
@@ -41,7 +42,12 @@ export async function loadRuntime({
 				indexURL: `${baseUrl}lib/`,
 				createPyodideModule,
 				packageBaseUrl: PACKAGE_BASE_URL,
-				env: { MPLBACKEND: "module://acode_mpl_backend", ...env },
+				env: {
+					MPLBACKEND: "module://acode_mpl_backend",
+					// written by acode_display to size figures for the console
+					MATPLOTLIBRC: "/tmp/acode-matplotlibrc",
+					...env,
+				},
 				stdout,
 				stderr,
 				stdin,
@@ -58,6 +64,7 @@ export async function loadRuntime({
 			`${sitePackages}/acode_mpl_backend.py`,
 			mplBackendSource,
 		);
+		pyodide.FS.writeFile(`${sitePackages}/acode_pygame.py`, pygameSource);
 		pyodide.runPython("import importlib; importlib.invalidate_caches()");
 		return pyodide;
 	} finally {
@@ -67,8 +74,13 @@ export async function loadRuntime({
 
 /**
  * Loads the packages `code` imports and prepares display hooks for them.
+ * `width` (CSS px) and `pixelRatio` describe the console images are shown in.
  */
-export async function prepareCode(pyodide, code, { message, error }) {
+export async function prepareCode(
+	pyodide,
+	code,
+	{ message, error, width = 0, pixelRatio = 1 },
+) {
 	await pyodide.loadPackagesFromImports(code, {
 		// only report real downloads, not "already loaded" on every run
 		messageCallback: (text) => {
@@ -76,7 +88,7 @@ export async function prepareCode(pyodide, code, { message, error }) {
 		},
 		errorCallback: error,
 	});
-	callDisplay(pyodide, "prepare", code);
+	callDisplay(pyodide, "prepare", code, width, pixelRatio);
 }
 
 /** Shows matplotlib figures the code created but never showed */

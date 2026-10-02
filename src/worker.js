@@ -23,8 +23,8 @@ async function loadPyodideAndPackages(baseUrl = "", packages) {
 		stdin: () => {
 			return stdin();
 		},
-		showImage: (data) => {
-			self.postMessage({ action: "image", data });
+		showImage: (data, scale) => {
+			self.postMessage({ action: "image", data, scale });
 		},
 		// there is no canvas in a worker; Emscripten's SDL video and audio
 		// would crash Pyodide, so pygame runs headless here
@@ -69,7 +69,7 @@ __builtins__.input = input
 			}
 		},
 		async run(data) {
-			const { code } = data;
+			const { code, width, pixelRatio } = data;
 			if (!self.pyodide) {
 				self.postMessage({
 					action: "run",
@@ -82,6 +82,8 @@ __builtins__.input = input
 				await prepareCode(self.pyodide, code, {
 					message: stdout,
 					error: stderr,
+					width,
+					pixelRatio,
 				});
 				let output;
 				try {
@@ -98,7 +100,7 @@ __builtins__.input = input
 				self.postMessage({
 					action: "run",
 					success: false,
-					error: error?.message ?? error?.toString(),
+					error: explainError(error?.message ?? error?.toString()),
 				});
 			}
 		},
@@ -120,6 +122,14 @@ self.onmessage = async (e) => {
 };
 
 self.line = "";
+
+/** pygame's own message for the missing display here is cryptic */
+function explainError(message) {
+	return message?.replace(
+		/pygame\.error: dummy not available\s*$/,
+		"pygame.error: no display available. pygame windows need the experimental SDL support, which could not start.\n",
+	);
+}
 
 function showLeftoverFigures() {
 	try {

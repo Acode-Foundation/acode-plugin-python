@@ -7,14 +7,19 @@ import io
 from matplotlib._pylab_helpers import Gcf
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-from acode_display import show_png
+import acode_display
 
 __all__ = ["FigureCanvas", "show"]
 
 
 def show(*args, **kwargs):
+    scale = acode_display.scale
     for manager in Gcf.get_all_fig_managers():
+        figure = manager.canvas.figure
         buffer = io.BytesIO()
-        manager.canvas.figure.savefig(buffer, format="png", bbox_inches="tight")
-        show_png(buffer.getvalue())
+        # render at the device pixel ratio so plots stay sharp on HiDPI screens
+        figure.savefig(
+            buffer, format="png", bbox_inches="tight", dpi=figure.dpi * scale
+        )
+        acode_display.show_png(buffer.getvalue(), scale)
     Gcf.destroy_all()

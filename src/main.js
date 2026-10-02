@@ -6,10 +6,8 @@ const WRAP_KEY = `${plugin.id}.wrap`;
 const WRAP_ICON =
 	'<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"/></svg>';
 
-// pygame programs use the experimental SDL runtime on the main thread, which
-// is only safe when their game loop yields with `await`
+// pygame programs use the experimental SDL runtime on the main thread
 const PYGAME_IMPORT = /^\s*(?:import|from)\s+pygame\b/m;
-const AWAIT = /\bawait\b/;
 
 class Python {
 	#worker;
@@ -163,16 +161,7 @@ class Python {
 		await this.#cacheFile.writeFile("");
 
 		const code = editorManager.editor.getValue();
-		if (PYGAME_IMPORT.test(code)) {
-			if (!AWAIT.test(code)) {
-				this.print(
-					"Tip: pygame needs an async game loop (await asyncio.sleep(0) each frame) to show its window with the experimental SDL support.",
-					"info",
-				);
-			} else if (await this.#runWithSdl(code)) {
-				return;
-			}
-		}
+		if (PYGAME_IMPORT.test(code) && (await this.#runWithSdl(code))) return;
 		await this.runCode(code);
 	}
 
@@ -194,7 +183,8 @@ class Python {
 				canvas: $canvas,
 				stdout: (text) => this.print(text),
 				stderr: (text) => this.print(text, "error"),
-				showImage: (data) => this.#printImage(data),
+				showImage: (data, scale) => this.#printImage(data, scale),
+				...this.#displaySize(),
 			});
 			if (error) this.print(error, "error");
 			return true;
@@ -239,6 +229,7 @@ class Python {
 			this.#worker.postMessage({
 				action: "run",
 				code,
+				...this.#displaySize(),
 			});
 			const res = await new Promise((resolve, error) => {
 				this.#onRunSuccess = resolve;
@@ -306,9 +297,30 @@ class Python {
 		this.#append($output, this.$input);
 	}
 
-	#printImage(data) {
+	/** Console width (CSS px) and pixel ratio, so figures fit and stay sharp */
+	#displaySize() {
+		const $main = this.$page.get(".main");
+		const style = $main && getComputedStyle($main);
+		const padding = style
+			? Number.parseFloat(style.paddingLeft) +
+				Number.parseFloat(style.paddingRight)
+			: 0;
+		return {
+			width: Math.max(0, ($main?.clientWidth ?? 0) - padding),
+			pixelRatio: window.devicePixelRatio || 1,
+		};
+	}
+
+	/**
+	 * Shows a PNG rendered at `scale` times its display size at its true
+	 * size, so it is sharp on HiDPI screens instead of upscaled.
+	 */
+	#printImage(data, scale = 1) {
 		if (!this.$page.isConnected) return;
 		const $img = tag("img", { src: `data:image/png;base64,${data}` });
+		$img.onload = () => {
+			$img.style.width = `${$img.naturalWidth / scale}px`;
+		};
 		this.#append(
 			tag("div", { className: "py-media", children: [$img] }),
 			this.$input,
@@ -368,7 +380,7 @@ class Python {
 				break;
 
 			case "image":
-				this.#printImage(e.data.data);
+				this.#printImage(e.data.data, e.data.scale);
 				break;
 
 			case "fatal":

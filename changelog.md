@@ -8,8 +8,8 @@
 - Console output can now be selected and copied
 - Header button to toggle line wrap in the console (remembered between sessions)
 - Thin progress line under the console header while Python loads or code is running
-- matplotlib plots are shown in the console (`plt.show()`, or automatically at the end of a run), as are Pillow `Image.show()` images
-- Experimental SDL support: pygame programs with an async game loop draw to a canvas in the console, falling back to running without a display if SDL cannot start
+- matplotlib plots are shown in the console (`plt.show()`, or automatically at the end of a run), as are Pillow `Image.show()` images. Plots are sized to the console and rendered sharp on high-density screens
+- Experimental SDL support: pygame programs draw to a canvas in the console, including ordinary blocking game loops on WebViews with JSPI. Falls back to running without a display if SDL cannot start
 - Python crashes no longer leave the console stuck; Python restarts on the next run
 - Fixed Python failing to load (or staying on "loading...") on some devices
 - Clear error message when Python fails to load, with automatic retry on the next run
