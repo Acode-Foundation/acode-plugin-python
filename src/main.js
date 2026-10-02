@@ -1,337 +1,354 @@
-import plugin from '../plugin.json';
+import plugin from "../plugin.json";
+import style from "./style.css";
 
 class Python {
-  #worker;
-  #onInitError;
-  #onInitSuccess;
-  #onRunSuccess;
-  #onRunError;
-  #cacheFile;
-  #cacheFileUrl;
-  #isInput = false;
-  $input = null;
-  $page = null;
-  $runBtn = null;
-  $style = null;
-  #codes = [];
-  #niddle = 0;
-  #inputCount = 0;
-  #state = 0;
+	#worker;
+	#onInitError;
+	#onInitSuccess;
+	#onRunSuccess;
+	#onRunError;
+	#cacheFile;
+	#cacheFileUrl;
+	#isInput = false;
+	$input = null;
+	$page = null;
+	$runBtn = null;
+	$style = null;
+	#codes = [];
+	#niddle = 0;
+	#inputCount = 0;
+	#state = 0;
+	#initPromise = Promise.resolve(false);
 
-  INITIALIZING = 1;
-  INITIALIZED = 2;
-  NOT_INTIALIZED = 0;
+	INITIALIZING = 1;
+	INITIALIZED = 2;
+	NOT_INTIALIZED = 0;
 
-  name = 'Python';
-  baseUrl = '';
-  pyodide = null;
+	name = "Python";
+	baseUrl = "";
+	pyodide = null;
 
-  async init($page, cacheFile, cacheFileUrl) {
-    $page.id = 'acode-plugin-python';
+	async init($page, cacheFile, cacheFileUrl) {
+		$page.id = "acode-plugin-python";
 
-    this.#cacheFileUrl = cacheFileUrl;
-    this.$page = $page;
-    this.$page.settitle('Python');
-    this.#cacheFile = cacheFile;
+		this.#cacheFileUrl = cacheFileUrl;
+		this.$page = $page;
+		this.$page.settitle("Python");
+		this.#cacheFile = cacheFile;
 
-    const onhide = $page.onhide;
-    $page.onhide = () => {
-      this.#state = this.NOT_INTIALIZED;
-      this.#worker?.terminate();
-      this.initWorker();
-      onhide();
-    };
+		const onhide = $page.onhide;
+		$page.onhide = () => {
+			this.#state = this.NOT_INTIALIZED;
+			this.#worker?.terminate();
+			this.initWorker();
+			onhide();
+		};
 
-    let main = this.$page.get('.main');
+		let main = this.$page.get(".main");
 
-    if (!main) {
-      main = tag('div', { className: 'main' });
-      this.$page.append(main);
-    }
+		if (!main) {
+			main = tag("div", { className: "main" });
+			this.$page.append(main);
+		}
 
-    main.style.padding = '10px';
-    main.style.overflow = 'auto';
-    main.style.boxSizing = 'border-box';
+		main.style.padding = "10px";
+		main.style.overflow = "auto";
+		main.style.boxSizing = "border-box";
 
-    //     import font from './icon.ttf';
-    //     import style from './style.scss';
+		this.$runBtn = tag("div", {
+			className: "icon play_py",
+			attr: { action: "run" },
+			onclick: this.run.bind(this),
+		});
+		this.$style = tag("style", { textContent: style });
+		this.$input = tag("div", {
+			className: "print input",
+			children: [
+				tag("textarea", {
+					onkeydown: this.#onkeydown.bind(this),
+					oninput: this.#oninput.bind(this),
+				}),
+			],
+		});
 
-    const font = await import('./icon.ttf');
-    const style = await import('./style.scss');
+		this.checkRunnable();
+		editorManager.on("switch-file", this.checkRunnable.bind(this));
+		editorManager.on("rename-file", this.checkRunnable.bind(this));
+		document.head.append(this.$style);
+		this.initWorker();
+	}
 
-    // const style = '';
+	/**
+	 * Starts the Python worker if it is not running.
+	 * @returns {Promise<boolean>} false if Python failed to load
+	 */
+	initWorker() {
+		if (this.#state === this.NOT_INTIALIZED) {
+			this.#initPromise = this.#startWorker();
+		}
+		return this.#initPromise;
+	}
 
-    this.$runBtn = <div className='icon play_py' attr-action='run' onclick={this.run.bind(this)} />
-    this.$style = <style>{style.default.replace('icon.ttf', font.default)}</style>;
-    this.$input = <div className='print input'>
-      <textarea onkeydown={this.#onkeydown.bind(this)} oninput={this.#oninput.bind(this)} />
-    </div>;
+	async #startWorker() {
+		this.#state = this.INITIALIZING;
+		this.$page.settitle(strings["loading..."]);
+		this.#worker?.terminate();
+		this.#worker = new Worker(`${this.baseUrl}worker.js`, { type: "module" });
+		this.#worker.onmessage = this.#workerOnMessage.bind(this);
 
-    this.checkRunnable();
-    editorManager.on('switch-file', this.checkRunnable.bind(this));
-    editorManager.on('rename-file', this.checkRunnable.bind(this));
-    document.head.append(this.$style);
-    this.initWorker();
-  }
+		try {
+			await new Promise((resolve, reject) => {
+				this.#onInitSuccess = resolve;
+				this.#onInitError = reject;
+				// fires if worker.js itself fails to load or throws while starting
+				this.#worker.onerror = (e) => {
+					e.preventDefault();
+					reject(`Failed to start Python worker: ${e.message || e.type}`);
+				};
+				this.#worker.postMessage({
+					action: "init",
+					baseUrl: this.baseUrl,
+					cacheFileUrl: this.#cacheFileUrl,
+				});
+			});
+			this.#state = this.INITIALIZED;
+			return true;
+		} catch (error) {
+			// allow the next run to retry
+			this.#state = this.NOT_INTIALIZED;
+			this.print(error, "error");
+			return false;
+		} finally {
+			this.$page.settitle("Python");
+		}
+	}
 
-  async initWorker() {
-    if (this.#state !== this.NOT_INTIALIZED) return;
-    this.#state = this.INITIALIZING;
-    this.$page.settitle(strings['loading...']);
-    this.#worker = new Worker(this.baseUrl + 'worker.js');
-    this.#worker.postMessage({
-      action: 'init',
-      baseUrl: this.baseUrl,
-      cacheFileUrl: this.#cacheFileUrl,
-    });
-    this.#worker.onmessage = this.#workerOnMessage.bind(this);
+	async run() {
+		this.#showPage();
+		this.#inputCount = 0;
+		this.#append(this.$input);
+		await this.#cacheFile.writeFile("");
+		await this.runCode(editorManager.editor.getValue());
+	}
 
-    try {
-      await new Promise((resolve, error) => {
-        this.#onInitSuccess = resolve;
-        this.#onInitError = error;
-      });
-    } catch (error) {
-      this.print(error, 'error');
-      return;
-    }
-  }
+	async terminal() {
+		this.#showPage();
+	}
 
-  async run() {
-    this.#showPage();
-    this.#inputCount = 0;
-    this.#append(this.$input);
-    await this.#cacheFile.writeFile('');
-    await this.initWorker();
-    await this.runCode(
-      editorManager.editor.getValue(),
-    );
-  }
+	async runCode(code) {
+		if (!(await this.initWorker())) return;
+		this.#worker.postMessage({
+			action: "run",
+			code,
+		});
+		try {
+			const res = await new Promise((resolve, error) => {
+				this.#onRunSuccess = resolve;
+				this.#onRunError = error;
+			});
+			this.print(res, "output");
+		} catch (error) {
+			this.print(error, "error");
+		}
+	}
 
-  async terminal() {
-    this.#showPage();
-  }
+	destroy() {
+		if (this.$runBtn) {
+			this.$runBtn.onclick = null;
+			this.$runBtn.remove();
+		}
 
-  async runCode(code) {
-    this.#worker.postMessage({
-      action: 'run',
-      code,
-    });
-    try {
-      const res = await new Promise((resolve, error) => {
-        this.#onRunSuccess = resolve;
-        this.#onRunError = error;
-      });
-      this.print(res, 'output');
-    } catch (error) {
-      this.print(error, 'error');
-    }
-  }
+		this.#worker?.terminate();
+		editorManager.off("switch-file", this.checkRunnable.bind(this));
+		editorManager.off("rename-file", this.checkRunnable.bind(this));
+		this.$style.remove();
+	}
 
-  destroy() {
-    if (this.$runBtn) {
-      this.$runBtn.onclick = null;
-      this.$runBtn.remove();
-    }
+	checkRunnable() {
+		const file = editorManager.activeFile;
 
-    this.#worker?.terminate();
-    editorManager.off('switch-file', this.checkRunnable.bind(this));
-    editorManager.off('rename-file', this.checkRunnable.bind(this));
-    this.$style.remove();
-  }
+		if (this.$runBtn.isConnected) {
+			this.$runBtn.remove();
+		}
 
-  checkRunnable() {
-    const file = editorManager.activeFile;
+		if (file?.name.endsWith(".py")) {
+			const $header = root.get("header");
+			$header.get(".icon.play_arrow")?.remove();
+			$header.insertBefore(this.$runBtn, $header.lastChild);
+		}
+	}
 
-    if (this.$runBtn.isConnected) {
-      this.$runBtn.remove();
-    }
+	print(res, type) {
+		if (!this.$page.isConnected) return;
+		const $output = tag("div", {
+			className: `print ${type || ""}`,
+			textContent: res,
+		});
+		this.#append($output, this.$input);
+	}
 
-    if (file?.name.endsWith('.py')) {
-      const $header = root.get('header');
-      $header.get('.icon.play_arrow')?.remove();
-      $header.insertBefore(this.$runBtn, $header.lastChild);
-    }
-  }
+	#showPage() {
+		const $main = this.$page.get(".main");
+		if (!this.$page.isConnected) {
+			this.$page.classList.remove("hide");
+			this.$page.show();
+		}
+		$main.innerHTML = "";
+	}
 
-  print(res, type) {
-    if (!this.$page.isConnected) return;
-    const $output = tag('div', {
-      className: `print ${type || ''}`,
-      textContent: res,
-    });
-    this.#append($output, this.$input);
-  }
+	#clearConsole() {
+		this.$page.get(".main").innerHTML = "";
+		this.#append(this.$input);
+	}
 
-  #showPage() {
-    const $main = this.$page.get('.main');
-    if (!this.$page.isConnected) {
-      this.$page.classList.remove('hide');
-      this.$page.show();
-    }
-    $main.innerHTML = '';
-  }
+	#append(...$el) {
+		const $main = this.$page.get(".main");
+		if (!$main) this.$page.append(tag("div", { className: "main" }));
+		this.$page.get(".main").append(...$el);
+	}
 
-  #clearConsole() {
-    this.$page.get('.main').innerHTML = '';
-    this.#append(this.$input);
-  }
+	async #workerOnMessage(e) {
+		const { action, success, error, text } = e.data;
 
-  #append(...$el) {
-    const $main = this.$page.get('.main');
-    if (!$main) this.$page.append(tag('div', { className: 'main' }));
-    this.$page.get('.main').append(...$el);
-  }
+		switch (action) {
+			case "init":
+				if (success) {
+					this.#onInitSuccess();
+				} else {
+					this.#onInitError(error);
+				}
+				break;
 
-  async #workerOnMessage(e) {
-    const {
-      action,
-      success,
-      error,
-      text,
-    } = e.data;
+			case "run":
+				if (success) {
+					this.#onRunSuccess();
+				} else {
+					this.#onRunError(error);
+				}
+				break;
 
-    switch (action) {
-      case 'init':
-        this.#state = this.INITIALIZED;
-        this.$page.settitle('Python');
-        if (success) {
-          this.#onInitSuccess();
-        } else {
-          this.#onInitError(error);
-        }
-        break;
+			case "input":
+				this.#isInput = true;
+				if (text) this.print(text);
+				await this.#cacheFile.writeFile("");
+				this.$input.get("textarea").focus();
+				break;
 
-      case 'run':
-        if (success) {
-          this.#onRunSuccess();
-        } else {
-          this.#onRunError(error);
-        }
-        break;
+			case "stdout":
+				this.print(text);
+				break;
 
-      case 'input':
-        this.#isInput = true;
-        if (text) this.print(text);
-        await this.#cacheFile.writeFile('');
-        this.$input.get('textarea').focus();
-        break;
+			case "stderr":
+				this.print(text, "error");
+				break;
 
-      case 'stdout':
-        this.print(text);
-        break;
+			default:
+				break;
+		}
+	}
 
-      case 'stderr':
-        this.print(text, 'error');
-        break;
+	#onkeydown(e) {
+		const value = e.target.value;
+		const lines = value.split("\n");
+		const canGoUp = this.#getCursorPosition() === 1;
+		const canGoDown = this.#getCursorPosition() === lines.length;
+		// if up arrow is pressed, show previous code
+		if (canGoUp && e.key === "ArrowUp") {
+			e.preventDefault();
+			if (this.#niddle > 0) {
+				this.#niddle -= 1;
+				e.target.value = this.#codes[this.#niddle];
+			}
+		}
 
-      default:
-        break;
-    }
-  }
+		// if down arrow is pressed, show next code
+		if (canGoDown && e.key === "ArrowDown") {
+			e.preventDefault();
+			if (this.#niddle < this.#codes.length) {
+				this.#niddle += 1;
+				e.target.value = this.#codes[this.#niddle] || "";
+			}
+		}
 
-  #onkeydown(e) {
-    const value = e.target.value;
-    const lines = value.split('\n');
-    const canGoUp = this.#getCursorPosition() === 1;
-    const canGoDown = this.#getCursorPosition() === lines.length;
-    // if up arrow is pressed, show previous code
-    if (canGoUp && e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (this.#niddle > 0) {
-        this.#niddle -= 1;
-        e.target.value = this.#codes[this.#niddle];
-      }
-    }
+		// if ctrl + l is pressed, clear the input
+		if (e.key === "l" && e.ctrlKey) {
+			this.#clearConsole();
+		}
 
-    // if down arrow is pressed, show next code
-    if (canGoDown && e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (this.#niddle < this.#codes.length) {
-        this.#niddle += 1;
-        e.target.value = this.#codes[this.#niddle] || '';
-      }
-    }
+		if (e.key === "Tab") {
+			e.preventDefault();
+			e.target.value += "\t";
+		}
+	}
 
-    // if ctrl + l is pressed, clear the input
-    if (e.key === 'l' && e.ctrlKey) {
-      this.#clearConsole();
-    }
+	#getCursorPosition() {
+		const $textarea = this.$input.get("textarea");
+		const { selectionStart, selectionEnd } = $textarea;
 
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      e.target.value += '\t';
-    }
-  }
+		if (selectionStart !== selectionEnd) return;
+		const lines = $textarea.value;
 
-  #getCursorPosition() {
-    const $textarea = this.$input.get('textarea');
-    const {
-      selectionStart,
-      selectionEnd,
-    } = $textarea;
+		// get the line number of the cursor
+		return lines.slice(0, selectionStart).split("\n").length;
+	}
 
-    if (selectionStart !== selectionEnd) return;
-    const lines = $textarea.value;
+	#oninput(e) {
+		const $el = e.target;
+		let { value } = $el;
+		$el.style.height = `${$el.scrollHeight}px`;
+		// check if new line is added
+		if (value.endsWith("\n")) {
+			if (this.#isInput) {
+				this.#isInput = false;
+				value = value.slice(0, -1);
+				this.#cacheFile.writeFile(`${value}\0${this.#inputCount++}`);
+				this.print(value, "input");
+				this.$input.get("textarea").value = "";
+				return;
+			}
 
-    // get the line number of the cursor
-    return lines.slice(0, selectionStart).split('\n').length;
-  }
+			if (!this.#isIncomplete(value)) {
+				this.#codes.push(value.trim());
+				this.#niddle = this.#codes.length;
+				this.print(value, "input");
+				this.runCode(value);
+				this.$input.get("textarea").value = "";
+			}
+		}
+	}
 
-  #oninput(e) {
-    const $el = e.target;
-    let { value } = $el;
-    $el.style.height = `${$el.scrollHeight}px`;
-    // check if new line is added
-    if (value.endsWith('\n')) {
-      if (this.#isInput) {
-        this.#isInput = false;
-        value = value.slice(0, -1);
-        this.#cacheFile.writeFile(value + `\0${this.#inputCount++}`);
-        this.print(value, 'input');
-        this.$input.get('textarea').value = '';
-        return;
-      }
+	#isIncomplete(code) {
+		const lines = code.trim().split("\n");
+		const lastLine = lines[lines.length - 1];
 
-      if (!this.#isIncomplete(value)) {
-        this.#codes.push(value.trim());
-        this.#niddle = this.#codes.length;
-        this.print(value, 'input');
-        this.runCode(value);
-        this.$input.get('textarea').value = '';
-      }
-    }
-  }
+		// if last line ends with ':', it is incomplete
+		if (/:$/.test(lastLine)) {
+			return true;
+		}
 
-  #isIncomplete(code) {
-    const lines = code.trim().split('\n');
-    let lastLine = lines[lines.length - 1];
+		// if last line starts with tab or soft tab, it is incomplete
+		if (/^\W+/.test(lastLine)) {
+			if (/\n\n$/.test(code)) {
+				return false;
+			}
+			return true;
+		}
 
-    // if last line ends with ':', it is incomplete
-    if (/:$/.test(lastLine)) {
-      return true;
-    }
-
-    // if last line starts with tab or soft tab, it is incomplete
-    if (/^\W+/.test(lastLine)) {
-      if (/\n\n$/.test(code)) {
-        return false;
-      }
-      return true;
-    }
-
-    return false;
-  }
+		return false;
+	}
 }
 
 if (window.acode) {
-  const python = new Python();
-  acode.setPluginInit(plugin.id, (baseUrl, $page, { cacheFileUrl, cacheFile }) => {
-    if (!baseUrl.endsWith('/')) baseUrl += '/';
-    python.baseUrl = baseUrl;
-    python.init($page, cacheFile, cacheFileUrl);
-  });
-  acode.setPluginUnmount(plugin.id, () => {
-    python.destroy();
-  });
+	const python = new Python();
+	acode.setPluginInit(
+		plugin.id,
+		(baseUrl, $page, { cacheFileUrl, cacheFile }) => {
+			if (!baseUrl.endsWith("/")) baseUrl += "/";
+			python.baseUrl = baseUrl;
+			python.init($page, cacheFile, cacheFileUrl);
+		},
+	);
+	acode.setPluginUnmount(plugin.id, () => {
+		python.destroy();
+	});
 }

@@ -1,0 +1,62 @@
+#acode-plugin-python {
+	/* Acode disables selection on body; allow copying REPL input and output */
+	.main {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+
+	textarea {
+		background-color: transparent;
+		color: inherit;
+		border: none;
+		outline: none;
+		resize: none;
+		flex: 1;
+		tab-size: 4;
+	}
+
+	.print {
+		display: flex;
+		white-space: pre;
+		overflow: auto;
+
+		&:not(:empty) {
+			&::before {
+				content: ">>";
+				padding: 0 10px 0 0;
+				background: var(--secondary-color);
+				position: sticky;
+				left: 0;
+			}
+
+			&.input {
+				color: lightgreen;
+
+				&::before {
+					content: "<<";
+				}
+			}
+
+			&.error {
+				color: orangered;
+			}
+		}
+	}
+}
+
+@font-face {
+	font-family: "acode-plugin-python-icon";
+	src: url("./icon.ttf") format("truetype");
+	font-weight: normal;
+	font-style: normal;
+}
+
+.play_py {
+	/* biome-ignore lint/a11y/useGenericFontNames: icon font, no generic fallback */
+	/* biome-ignore lint/complexity/noImportantStyles: must override Acode's .icon font */
+	font-family: "acode-plugin-python-icon" !important;
+}
+
+.play_py:before {
+	content: "\e900";
+}

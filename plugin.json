@@ -1,18 +1,25 @@
 {
-  "$schema": "https://acode.app/schema/plugin/v0.1.0.json",
-  "id": "acode.plugin.python",
-  "name": "Python",
-  "main": "dist/main.js",
-  "version": "1.1.4",
-  "icon": "icon.png",
-  "license": "MIT",
-  "repository": "https://github.com/Acode-Foundation/acode-plugin-python.git",
-  "keywords": [
-    "python"
-  ],
-  "author": {
-    "name": "Ajit Kumar",
-    "email": "me@ajitkumar.dev",
-    "github": "deadlyjack"
-  }
+	"$schema": "https://acode.app/schema/plugin/v0.1.0.json",
+	"id": "acode.plugin.python",
+	"name": "Python",
+	"main": "main.js",
+	"version": "1.2.0",
+	"icon": "icon.png",
+	"license": "MIT",
+	"repository": "https://github.com/Acode-Foundation/acode-plugin-python.git",
+	"keywords": ["python"],
+	"author": {
+		"name": "Ajit Kumar",
+		"email": "me@ajitkumar.dev",
+		"github": "deadlyjack"
+	},
+	"readme": "README.md",
+	"changelogs": "changelog.md",
+	"contributors": [
+		{
+			"name": "Raunak",
+			"github": "bajrangCoder",
+			"role": "developer"
+		}
+	]
 }

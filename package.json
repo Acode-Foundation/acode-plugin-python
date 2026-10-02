@@ -1,37 +1,23 @@
 {
-  "name": "acode-plugin-python",
-  "version": "1.1.4",
-  "description": "Acode plugin to run python code",
-  "main": "dist/main.js",
-  "repository": "https://github.com/Acode-Foundation/acode-plugin-python.git",
-  "author": "Ajit <me@ajitkumar.dev>",
-  "license": "MIT",
-  "type": "module",
-  "dependencies": {
-    "html-tag-js": "^2.4.15"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.28.0",
-    "@babel/plugin-transform-runtime": "^7.28.0",
-    "@babel/preset-env": "^7.28.0",
-    "@babel/runtime": "^7.28.2",
-    "autoprefixer": "^10.4.21",
-    "babel-loader": "^10.0.0",
-    "jszip": "^3.10.1",
-    "live-server": "^1.2.2",
-    "postcss": "^8.5.6",
-    "postcss-loader": "^8.1.1",
-    "raw-loader": "^4.0.2",
-    "sass": "^1.90.0",
-    "sass-loader": "^16.0.5",
-    "style-loader": "^4.0.0",
-    "webpack": "^5.101.0",
-    "webpack-cli": "^6.0.1",
-    "webpack-dev-server": "^5.2.2"
-  },
-  "scripts": {
-    "build": "webpack --mode production",
-    "dev": "webpack serve --progress"
-  },
-  "browserslist": "cover 100%,not android < 5"
+	"name": "acode-plugin-python",
+	"version": "1.2.0",
+	"description": "Acode plugin to run python code",
+	"main": "dist/main.js",
+	"repository": "https://github.com/Acode-Foundation/acode-plugin-python.git",
+	"author": "Ajit <me@ajitkumar.dev>",
+	"license": "MIT",
+	"type": "module",
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.8",
+		"acode-plugin-types": "^1.12.9",
+		"esbuild": "^0.28.2",
+		"jszip": "^3.10.2",
+		"pyodide": "314.0.7"
+	},
+	"scripts": {
+		"dev": "node esbuild.config.mjs --serve",
+		"build": "node esbuild.config.mjs",
+		"check": "biome check"
+	},
+	"browserslist": "cover 100%,not android < 5"
 }
