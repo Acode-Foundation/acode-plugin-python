@@ -33,6 +33,10 @@ class Python {
 	/** number of code runs still waiting for the worker */
 	#running = 0;
 	#sdlPromise = null;
+	/** SDL API from this instance's current sdl.js load */
+	#sdl = null;
+	/** id of the current sdl.js load; older loads are ignored */
+	#sdlLoadId = null;
 	$sdlScript = null;
 	/** bumped by every run and when the console closes, to drop stale runs */
 	#runId = 0;
@@ -57,7 +61,7 @@ class Python {
 		const onhide = $page.onhide;
 		$page.onhide = () => {
 			this.#runId += 1;
-			window.acodePythonSdl?.stop();
+			this.#sdl?.stop();
 			this.#state = this.NOT_INTIALIZED;
 			this.#worker?.terminate();
 			// runs on the terminated worker never reply
@@ -161,7 +165,7 @@ class Python {
 
 	async run() {
 		const runId = ++this.#runId;
-		window.acodePythonSdl?.stop();
+		this.#sdl?.stop();
 		this.#showPage();
 		this.#inputCount = 0;
 		this.#append(this.$input);
@@ -242,13 +246,28 @@ class Python {
 		}
 	}
 
+	/**
+	 * Loads sdl.js. Each load registers its API under its own id, so a stale
+	 * load that finishes late (e.g. after an unmount and remount) cannot
+	 * replace the API this instance uses.
+	 */
 	#loadSdl() {
 		this.#sdlPromise ??= new Promise((resolve, reject) => {
+			const loadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			this.#sdlLoadId = loadId;
 			const $script = tag("script", { src: `${this.baseUrl}sdl.js` });
+			$script.dataset.loadId = loadId;
 			this.$sdlScript = $script;
 			$script.onload = () => {
-				if (window.acodePythonSdl) resolve(window.acodePythonSdl);
-				else reject(new Error("sdl.js did not initialize"));
+				const loads = window.acodePythonSdlLoads;
+				const sdl = loads?.[loadId];
+				if (loads) delete loads[loadId];
+				if (!sdl) {
+					reject(new Error("sdl.js did not initialize"));
+					return;
+				}
+				if (this.#sdlLoadId === loadId) this.#sdl = sdl;
+				resolve(sdl);
 			};
 			$script.onerror = () => reject(new Error("failed to load sdl.js"));
 			document.head.append($script);
@@ -303,8 +322,12 @@ class Python {
 
 		this.$wrapBtn?.remove();
 		this.$status?.remove();
-		window.acodePythonSdl?.dispose?.();
-		// a later init loads a fresh sdl.js instead of the disposed one
+		// runs still waiting for sdl.js must not start after this
+		this.#runId += 1;
+		this.#sdl?.dispose();
+		this.#sdl = null;
+		// a later init loads a fresh sdl.js; a load still in flight is ignored
+		this.#sdlLoadId = null;
 		this.#sdlPromise = null;
 		this.$sdlScript?.remove();
 		this.#worker?.terminate();

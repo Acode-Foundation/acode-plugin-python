@@ -250,8 +250,10 @@ function dispose() {
 	// let the runtime be freed instead of reused after a remount
 	runtimePromise = null;
 	runner = null;
-	if (self.acodePythonSdl === api) delete self.acodePythonSdl;
 }
 
-const api = { run, stop, dispose, SdlUnavailableError };
-self.acodePythonSdl = api;
+// Register under the id main.js put on this script tag rather than one shared
+// global, so a slow, stale load can never replace another load's API.
+const loadId = document.currentScript?.dataset.loadId;
+self.acodePythonSdlLoads ??= {};
+self.acodePythonSdlLoads[loadId] = { run, stop, dispose, SdlUnavailableError };
