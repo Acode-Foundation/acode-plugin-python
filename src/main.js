@@ -19,12 +19,15 @@ class Python {
 	$page = null;
 	$runBtn = null;
 	$wrapBtn = null;
+	$status = null;
 	$style = null;
 	#codes = [];
 	#niddle = 0;
 	#inputCount = 0;
 	#state = 0;
 	#initPromise = Promise.resolve(false);
+	/** number of code runs still waiting for the worker */
+	#running = 0;
 
 	INITIALIZING = 1;
 	INITIALIZED = 2;
@@ -46,6 +49,9 @@ class Python {
 		$page.onhide = () => {
 			this.#state = this.NOT_INTIALIZED;
 			this.#worker?.terminate();
+			// runs on the terminated worker never reply
+			this.#running = 0;
+			this.#isInput = false;
 			this.initWorker();
 			onhide();
 		};
@@ -69,10 +75,12 @@ class Python {
 		this.$wrapBtn = tag("span", {
 			className: "icon wrap_py",
 			innerHTML: WRAP_ICON,
-			attr: { action: "toggle-wrap", title: "Wrap lines", role: "button" },
+			attr: { action: "toggle-wrap", role: "button" },
 			onclick: () => this.#setWrap(!this.$page.classList.contains("wrap")),
 		});
-		this.$page.header?.append(this.$wrapBtn);
+		// Acode's spinner, shown while Python loads or code runs
+		this.$status = tag("span", { className: "icon hidden" });
+		this.$page.header?.append(this.$status, this.$wrapBtn);
 		this.#setWrap(loadWrap());
 		this.$style = tag("style", { textContent: style });
 		this.$input = tag("div", {
@@ -105,6 +113,7 @@ class Python {
 
 	async #startWorker() {
 		this.#state = this.INITIALIZING;
+		this.#updateStatus();
 		this.$page.settitle(strings["loading..."]);
 		this.#worker?.terminate();
 
@@ -135,6 +144,7 @@ class Python {
 			return false;
 		} finally {
 			this.$page.settitle("Python");
+			this.#updateStatus();
 		}
 	}
 
@@ -151,12 +161,14 @@ class Python {
 	}
 
 	async runCode(code) {
-		if (!(await this.initWorker())) return;
-		this.#worker.postMessage({
-			action: "run",
-			code,
-		});
+		this.#running += 1;
+		this.#updateStatus();
 		try {
+			if (!(await this.initWorker())) return;
+			this.#worker.postMessage({
+				action: "run",
+				code,
+			});
 			const res = await new Promise((resolve, error) => {
 				this.#onRunSuccess = resolve;
 				this.#onRunError = error;
@@ -164,7 +176,20 @@ class Python {
 			this.print(res, "output");
 		} catch (error) {
 			this.print(error, "error");
+		} finally {
+			this.#running = Math.max(0, this.#running - 1);
+			this.#updateStatus();
 		}
+	}
+
+	/** Spinner while Python is busy, hidden while it waits for input() */
+	#updateStatus() {
+		if (!this.$status) return;
+		const busy =
+			(this.#state === this.INITIALIZING || this.#running > 0) &&
+			!this.#isInput;
+		this.$status.classList.toggle("loading", busy);
+		this.$status.classList.toggle("hidden", !busy);
 	}
 
 	destroy() {
@@ -174,6 +199,7 @@ class Python {
 		}
 
 		this.$wrapBtn?.remove();
+		this.$status?.remove();
 		this.#worker?.terminate();
 		editorManager.off("switch-file", this.checkRunnable.bind(this));
 		editorManager.off("rename-file", this.checkRunnable.bind(this));
@@ -197,8 +223,6 @@ class Python {
 	/** Wraps long output lines instead of scrolling them horizontally */
 	#setWrap(wrap) {
 		this.$page.classList.toggle("wrap", wrap);
-		this.$wrapBtn.classList.toggle("active", wrap);
-		this.$wrapBtn.setAttribute("aria-pressed", String(wrap));
 		saveWrap(wrap);
 	}
 
@@ -253,6 +277,7 @@ class Python {
 
 			case "input":
 				this.#isInput = true;
+				this.#updateStatus();
 				if (text) this.print(text);
 				await this.#cacheFile.writeFile("");
 				this.$input.get("textarea").focus();
@@ -324,6 +349,7 @@ class Python {
 		if (value.endsWith("\n")) {
 			if (this.#isInput) {
 				this.#isInput = false;
+				this.#updateStatus();
 				value = value.slice(0, -1);
 				this.#cacheFile.writeFile(`${value}\0${this.#inputCount++}`);
 				this.print(value, "input");

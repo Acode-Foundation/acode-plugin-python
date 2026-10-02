@@ -50,14 +50,6 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
-
-	.wrap_py {
-		opacity: 0.5;
-
-		&.active {
-			opacity: 1;
-		}
-	}
 }
 
 @font-face {
