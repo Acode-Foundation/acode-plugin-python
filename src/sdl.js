@@ -2,7 +2,12 @@
 // SDL needs a real <canvas>, which a worker does not have, so this runtime
 // runs on the main thread. Ordinary blocking game loops work through JSPI
 // (see python/acode_pygame.py); without JSPI only async loops are safe.
-import { flushFigures, loadRuntime, prepareCode } from "./runtime.js";
+import {
+	flushFigures,
+	loadRuntime,
+	PACKAGE_BASE_URL,
+	prepareCode,
+} from "./runtime.js";
 
 const RUNNER_SOURCE = `
 import asyncio
@@ -47,9 +52,40 @@ let runner = null;
 /** the current run: its task handle and whether it was stopped */
 let current = null;
 let onFatal = () => {};
+let fetchRouted = false;
+
+/**
+ * Other plugins may replace `window.fetch` on Acode's page, e.g. with native
+ * HTTP to avoid CORS. Native HTTP cannot reach the plugin's own files at
+ * https://localhost/..., which only exist inside the WebView, so Pyodide
+ * failed with "Failed to connect to localhost/127.0.0.1:443". Requests for the
+ * plugin's files and Pyodide packages go through the browser's own fetch,
+ * taken from a hidden same-origin iframe; everything else is untouched.
+ */
+function routeRuntimeFetch(baseUrl) {
+	if (fetchRouted) return;
+	fetchRouted = true;
+	const $frame = document.createElement("iframe");
+	$frame.style.display = "none";
+	$frame.setAttribute("aria-hidden", "true");
+	document.body.append($frame);
+	const frameWindow = $frame.contentWindow;
+	const browserFetch = frameWindow.fetch.bind(frameWindow);
+	const pageFetch = window.fetch;
+	const prefixes = [baseUrl, PACKAGE_BASE_URL];
+
+	window.fetch = function (input, init) {
+		const url = typeof input === "string" ? input : (input?.url ?? `${input}`);
+		if (prefixes.some((prefix) => url.startsWith(prefix))) {
+			return browserFetch(input, init);
+		}
+		return pageFetch.call(this, input, init);
+	};
+}
 
 function getRuntime(baseUrl) {
 	runtimePromise ??= (async () => {
+		routeRuntimeFetch(baseUrl);
 		const pyodide = await loadRuntime({
 			baseUrl,
 			stdout: (text) => handlers.stdout(text),

@@ -9,7 +9,7 @@ import pygameSource from "./python/acode_pygame.py";
 
 // Packages not bundled with the plugin are fetched on demand from the CDN
 // build matching the bundled runtime (PYODIDE_VERSION is injected at build time)
-const PACKAGE_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+export const PACKAGE_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 const NOISE = /already loaded from|^No new packages to load/;
 
 /**
