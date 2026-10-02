@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import * as esbuild from "esbuild";
+import packZip from "./pack-zip.js";
 
 const require = createRequire(import.meta.url);
 const isServe = process.argv.includes("--serve");
@@ -37,7 +37,9 @@ function serveUrls(hosts, port) {
 	return [...names].map((host) => `http://${host}:${port}`);
 }
 
-async function copyPyodide() {
+// Starts from an empty dist so files from earlier builds are never packaged
+async function prepareDist() {
+	await rm("dist", { recursive: true, force: true });
 	const libDir = path.resolve("dist/lib");
 	await mkdir(libDir, { recursive: true });
 	await Promise.all(
@@ -45,16 +47,6 @@ async function copyPyodide() {
 			cp(path.join(pyodideDir, file), path.join(libDir, file)),
 		),
 	);
-}
-
-function packZip() {
-	execFile(process.execPath, ["./pack-zip.js"], (err, stdout) => {
-		if (err) {
-			console.error("Error packing zip:", err);
-			return;
-		}
-		console.log(stdout.trim());
-	});
 }
 
 // Bundles imported CSS (nesting lowered, fonts inlined) and exposes it as a string
@@ -85,9 +77,16 @@ const cssTextPlugin = {
 const zipPlugin = {
 	name: "zip-plugin",
 	setup(build) {
-		build.onStart(copyPyodide);
-		build.onEnd((result) => {
-			if (!result.errors.length) packZip();
+		// esbuild waits for this before finishing the build or starting a
+		// rebuild, so packing never overlaps
+		build.onEnd(async (result) => {
+			if (result.errors.length) return;
+			try {
+				await packZip();
+			} catch (error) {
+				console.error("Error packing zip:", error);
+				if (!isServe) process.exitCode = 1;
+			}
 		});
 	},
 };
@@ -114,6 +113,8 @@ const buildConfig = {
 };
 
 (async () => {
+	await prepareDist();
+
 	if (isServe) {
 		console.log("Starting development server...");
 
@@ -129,6 +130,6 @@ const buildConfig = {
 	} else {
 		console.log("Building for production...");
 		await esbuild.build(buildConfig);
-		console.log("Production build complete.");
+		if (!process.exitCode) console.log("Production build complete.");
 	}
 })();

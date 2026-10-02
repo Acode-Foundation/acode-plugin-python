@@ -121,7 +121,8 @@ __builtins__.input = input
 self.onmessage = async (e) => {
 	const { action } = e.data;
 
-	if (actions[action]) {
+	// only the handlers defined above, never inherited Object methods
+	if (Object.hasOwn(actions, action)) {
 		await actions[action](e.data);
 	}
 };

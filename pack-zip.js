@@ -1,76 +1,85 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import jszip from "jszip";
 
-const root = import.meta.dirname;
-const iconFile = path.join(root, "icon.png");
-const licenseFile = path.join(root, "LICENSE");
-const pluginJSON = path.join(root, "plugin.json");
-const distFolder = path.join(root, "dist");
-const json = JSON.parse(fs.readFileSync(pluginJSON, "utf8"));
-const readmeDotMd = resolveMetadataFile(json.readme, [
-	"readme.md",
-	"README.md",
-]);
-const changelogDotMd = resolveMetadataFile(json.changelogs, [
-	"changelog.md",
-	"changelogs.md",
-	"CHANGELOG.md",
-]);
+const root = path.dirname(fileURLToPath(import.meta.url));
 
-const zip = new jszip();
+/**
+ * Packs plugin.json, metadata files and the dist folder into plugin.zip.
+ * The archive is written to a temp file and renamed, so a dev server never
+ * serves a partially written zip.
+ */
+export default async function packZip() {
+	const pluginJSON = path.join(root, "plugin.json");
+	const json = JSON.parse(await fs.readFile(pluginJSON, "utf8"));
+	const readmeDotMd = await resolveMetadataFile(json.readme, [
+		"readme.md",
+		"README.md",
+	]);
+	const changelogDotMd = await resolveMetadataFile(json.changelogs, [
+		"changelog.md",
+		"changelogs.md",
+		"CHANGELOG.md",
+	]);
 
-zip.file("icon.png", fs.readFileSync(iconFile));
-zip.file("plugin.json", fs.readFileSync(pluginJSON));
+	const zip = new jszip();
 
-if (fs.existsSync(licenseFile)) {
-	zip.file("LICENSE", fs.readFileSync(licenseFile));
-}
+	zip.file("icon.png", await fs.readFile(path.join(root, "icon.png")));
+	zip.file("plugin.json", await fs.readFile(pluginJSON));
 
-if (readmeDotMd) {
-	zip.file(
-		json.readme || path.basename(readmeDotMd),
-		fs.readFileSync(readmeDotMd),
+	const licenseFile = path.join(root, "LICENSE");
+	if (await exists(licenseFile)) {
+		zip.file("LICENSE", await fs.readFile(licenseFile));
+	}
+
+	if (readmeDotMd) {
+		zip.file(
+			json.readme || path.basename(readmeDotMd),
+			await fs.readFile(readmeDotMd),
+		);
+	}
+
+	if (changelogDotMd) {
+		zip.file(
+			json.changelogs || path.basename(changelogDotMd),
+			await fs.readFile(changelogDotMd),
+		);
+	}
+
+	await loadFile(zip, "", path.join(root, "dist"));
+
+	const output = path.join(root, "plugin.zip");
+	const tempOutput = `${output}.tmp`;
+	await fs.writeFile(
+		tempOutput,
+		await zip.generateAsync({ type: "nodebuffer", streamFiles: true }),
 	);
+	await fs.rename(tempOutput, output);
+	console.log("Plugin plugin.zip written.");
 }
 
-if (changelogDotMd) {
-	zip.file(
-		json.changelogs || path.basename(changelogDotMd),
-		fs.readFileSync(changelogDotMd),
-	);
-}
-
-loadFile("", distFolder);
-
-zip
-	.generateNodeStream({ type: "nodebuffer", streamFiles: true })
-	.pipe(fs.createWriteStream(path.join(root, "plugin.zip")))
-	.on("finish", () => {
-		console.log("Plugin plugin.zip written.");
-	});
-
-function loadFile(base, folder) {
-	for (const file of fs.readdirSync(folder)) {
+async function loadFile(zip, base, folder) {
+	for (const file of await fs.readdir(folder)) {
 		if (file === ".DS_Store" || /LICENSE.txt/.test(file)) continue;
 
 		const filePath = path.join(folder, file);
 		const zipPath = path.posix.join(base, file);
 
-		if (fs.statSync(filePath).isDirectory()) {
+		if ((await fs.stat(filePath)).isDirectory()) {
 			zip.folder(zipPath);
-			loadFile(zipPath, filePath);
+			await loadFile(zip, zipPath, filePath);
 			continue;
 		}
 
-		zip.file(zipPath, fs.readFileSync(filePath));
+		zip.file(zipPath, await fs.readFile(filePath));
 	}
 }
 
-function resolveMetadataFile(configuredPath, fallbacks) {
+async function resolveMetadataFile(configuredPath, fallbacks) {
 	if (configuredPath) {
 		const file = path.join(root, configuredPath);
-		if (!fs.existsSync(file)) {
+		if (!(await exists(file))) {
 			throw new Error(`Missing plugin metadata file: ${configuredPath}`);
 		}
 		return file;
@@ -78,7 +87,16 @@ function resolveMetadataFile(configuredPath, fallbacks) {
 
 	for (const fallback of fallbacks) {
 		const file = path.join(root, fallback);
-		if (fs.existsSync(file)) return file;
+		if (await exists(file)) return file;
 	}
 	return null;
+}
+
+async function exists(file) {
+	try {
+		await fs.access(file);
+		return true;
+	} catch {
+		return false;
+	}
 }

@@ -93,10 +93,11 @@ class Python {
 		this.#state = this.INITIALIZING;
 		this.$page.settitle(strings["loading..."]);
 		this.#worker?.terminate();
-		this.#worker = new Worker(`${this.baseUrl}worker.js`, { type: "module" });
-		this.#worker.onmessage = this.#workerOnMessage.bind(this);
 
 		try {
+			// inside try: construction throws if module workers are unsupported
+			this.#worker = new Worker(`${this.baseUrl}worker.js`, { type: "module" });
+			this.#worker.onmessage = this.#workerOnMessage.bind(this);
 			await new Promise((resolve, reject) => {
 				this.#onInitSuccess = resolve;
 				this.#onInitError = reject;
@@ -116,7 +117,7 @@ class Python {
 		} catch (error) {
 			// allow the next run to retry
 			this.#state = this.NOT_INTIALIZED;
-			this.print(error, "error");
+			this.print(error?.message ?? error, "error");
 			return false;
 		} finally {
 			this.$page.settitle("Python");
