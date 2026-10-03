@@ -1,0 +1,137 @@
+#acode-plugin-python {
+	/* Acode disables selection on body; allow copying REPL input and output */
+	.main {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+
+	> header {
+		position: relative;
+	}
+
+	.py-progress {
+		display: none;
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 2px;
+		overflow: hidden;
+		pointer-events: none;
+
+		&.running {
+			display: block;
+		}
+
+		&::before {
+			content: "";
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			left: 0;
+			width: 40%;
+			background-color: var(--active-color);
+			animation: py-progress 1.2s ease-in-out infinite;
+		}
+	}
+
+	textarea {
+		background-color: transparent;
+		color: inherit;
+		border: none;
+		outline: none;
+		resize: none;
+		flex: 1;
+		tab-size: 4;
+	}
+
+	.print {
+		display: flex;
+		white-space: pre;
+		overflow: auto;
+
+		&:not(:empty) {
+			&::before {
+				content: ">>";
+				flex-shrink: 0;
+				white-space: pre;
+				overflow-wrap: normal;
+				padding: 0 10px 0 0;
+				background: var(--secondary-color);
+				position: sticky;
+				left: 0;
+			}
+
+			&.input {
+				color: lightgreen;
+
+				&::before {
+					content: "<<";
+				}
+			}
+
+			&.error {
+				color: orangered;
+			}
+
+			&.info {
+				opacity: 0.7;
+			}
+		}
+	}
+
+	/* matplotlib/Pillow images and the SDL canvas */
+	.py-media {
+		margin: 8px 0;
+
+		img,
+		canvas {
+			display: block;
+			max-width: 100%;
+			height: auto;
+			border-radius: 4px;
+		}
+
+		img {
+			/* plots have a white background; keep transparent images readable */
+			background-color: #fff;
+		}
+
+		canvas {
+			/* keep pixel art crisp when the game is scaled to fit */
+			image-rendering: pixelated;
+		}
+	}
+
+	&.wrap .print {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+}
+
+@keyframes py-progress {
+	from {
+		transform: translateX(-100%);
+	}
+
+	to {
+		transform: translateX(250%);
+	}
+}
+
+@font-face {
+	font-family: "acode-plugin-python-icon";
+	src: url("./icon.ttf") format("truetype");
+	font-weight: normal;
+	font-style: normal;
+}
+
+.play_py {
+	/* biome-ignore lint/a11y/useGenericFontNames: icon font, no generic fallback */
+	/* biome-ignore lint/complexity/noImportantStyles: must override Acode's .icon font */
+	font-family: "acode-plugin-python-icon" !important;
+}
+
+.play_py:before {
+	content: "\e900";
+}

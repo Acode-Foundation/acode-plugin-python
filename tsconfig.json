@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"target": "es2020",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"allowJs": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"types": ["acode-plugin-types"]
+	},
+	"include": ["src/**/*"],
+	"exclude": ["./dist/**/*"]
+}

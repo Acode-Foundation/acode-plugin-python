@@ -1,4 +1,4 @@
 node_modules
-*.zip
-dist/
-!dist/lib/
+dist
+plugin.zip
+.DS_Store
